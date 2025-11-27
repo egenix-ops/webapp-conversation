@@ -19,6 +19,12 @@ import FileUploaderInAttachmentWrapper from '@/app/components/base/file-uploader
 import type { FileEntity, FileUpload } from '@/app/components/base/file-uploader-in-attachment/types'
 import { getProcessedFiles } from '@/app/components/base/file-uploader-in-attachment/utils'
 
+// ⬇️ PAS DIT PAD AAN als jouw microphone.svg ergens anders staat
+// bv. '@/app/components/icons/microphone.svg' of '@/app/components/base/icons/microphone.svg'
+import MicrophoneIcon from '@/app/components/chat/icons/microphone.svg'
+
+
+
 export interface IChatProps {
   chatList: ChatItem[]
   /**
@@ -58,6 +64,8 @@ const Chat: FC<IChatProps> = ({
 
   const [query, setQuery] = React.useState('')
   const queryRef = useRef('')
+  const [isRecording, setIsRecording] = React.useState(false)
+  const recognitionRef = useRef<any>(null)
 
   const handleContentChange = (e: any) => {
     const value = e.target.value
@@ -68,7 +76,6 @@ const Chat: FC<IChatProps> = ({
   const logError = (message: string) => {
     notify({ type: 'error', message, duration: 3000 })
   }
-
   const valid = () => {
     const query = queryRef.current
     if (!query || query.trim() === '') {
@@ -84,6 +91,16 @@ const Chat: FC<IChatProps> = ({
       queryRef.current = ''
     }
   }, [controlClearQuery])
+
+  // cleanup speech recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current && recognitionRef.current.stop) {
+        recognitionRef.current.stop()
+      }
+    }
+  }, [])
+
   const {
     files,
     onUpload,
@@ -141,6 +158,67 @@ const Chat: FC<IChatProps> = ({
     handleSend()
   }
 
+  // 🎙️ Microfoon / Speech-to-Text met Web Speech API
+  const handleMicClick = () => {
+    if (typeof window === 'undefined') return
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+
+    if (!SpeechRecognition) {
+      notify({
+        type: 'error',
+        message: 'Spraakherkenning wordt niet ondersteund in deze browser.',
+        duration: 3000,
+      })
+      return
+    }
+
+    if (!recognitionRef.current) {
+      const recognition = new SpeechRecognition()
+      recognition.continuous = false
+      recognition.interimResults = false
+      recognition.lang = 'nl-NL' // evt. 'en-US' of wat jij wilt
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results?.[0]?.[0]?.transcript ?? ''
+        if (transcript) {
+          const newText = (queryRef.current ? `${queryRef.current} ${transcript}` : transcript).trim()
+          setQuery(newText)
+          queryRef.current = newText
+          // als je wilt: automatisch sturen na inspreken
+          // handleSend()
+        }
+      }
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event)
+        setIsRecording(false)
+      }
+
+      recognition.onend = () => {
+        setIsRecording(false)
+      }
+
+      recognitionRef.current = recognition
+    }
+
+    if (!isRecording) {
+      try {
+        recognitionRef.current.start()
+        setIsRecording(true)
+      }
+      catch (e) {
+        console.error(e)
+        setIsRecording(false)
+      }
+    }
+    else {
+      recognitionRef.current.stop()
+      setIsRecording(false)
+    }
+  }
+
   return (
     <div className={cn(!feedbackDisabled && 'px-3.5', 'h-full')}>
       {/* Chat List */}
@@ -171,7 +249,7 @@ const Chat: FC<IChatProps> = ({
       {
         !isHideSendInput && (
           <div className='fixed z-10 bottom-0 left-1/2 transform -translate-x-1/2 pc:ml-[122px] tablet:ml-[96px] mobile:ml-0 pc:w-[794px] tablet:w-[794px] max-w-full mobile:w-full px-3.5'>
-            <div className='p-[5.5px] max-h-[150px] bg-white border-[1.5px] border-gray-200 rounded-xl overflow-y-auto'>
+            <div className='p-[5.5px] max-h-[150px] bg-white border-[1.5px] border-gray-200 rounded-xl overflow-y-auto relative'>
               {
                 visionConfig?.enabled && (
                   <>
@@ -217,8 +295,29 @@ const Chat: FC<IChatProps> = ({
                 onKeyDown={handleKeyDown}
                 autoSize
               />
-              <div className="absolute bottom-2 right-6 flex items-center h-8">
-                <div className={`${s.count} mr-3 h-5 leading-5 text-sm bg-gray-50 text-gray-500 px-2 rounded`}>{query.trim().length}</div>
+              <div className="absolute bottom-2 right-6 flex items-center h-8 gap-2">
+                {/* 🎙️ Microfoon-knop */}
+                <button
+                  type="button"
+                  onClick={handleMicClick}
+                  className={`
+    w-8 h-8 flex items-center justify-center rounded-md border
+    ${isRecording
+                      ? 'bg-red-100 border-red-400'
+                      : 'bg-white border-gray-200 hover:bg-gray-100'}
+  `}
+                >
+                  <img
+                    src={(MicrophoneIcon as any).src ?? (MicrophoneIcon as any)}
+                    alt="microphone"
+                    className="w-4 h-4"
+                  />
+                </button>
+
+
+                <div className={`${s.count} mr-1 h-5 leading-5 text-sm bg-gray-50 text-gray-500 px-2 rounded`}>
+                  {query.trim().length}
+                </div>
                 <Tooltip
                   selector='send-tip'
                   htmlContent={

@@ -30,6 +30,9 @@ export const sendChatMessage = async (
     onNodeStarted: IOnNodeStarted
     onNodeFinished: IOnNodeFinished
     onWorkflowFinished: IOnWorkflowFinished
+    onTTSMessage?: IOnTTSMessage
+    onTTSEnd?: IOnTTSEnd
+
   },
 ) => {
   return ssePost('chat-messages', {

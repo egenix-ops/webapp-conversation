@@ -114,6 +114,22 @@ export type IOnWorkflowFinished = (workflowFinished: WorkflowFinishedResponse) =
 export type IOnNodeStarted = (nodeStarted: NodeStartedResponse) => void
 export type IOnNodeFinished = (nodeFinished: NodeFinishedResponse) => void
 
+export interface TTSAudioChunk {
+  event: 'tts_message'
+  message_id: string
+  audio: string // base64 of base64url string van het audio-chunk
+  // soms ook: mimetype, sequence, etc. → check in Network tab
+}
+
+export interface TTSAudioEnd {
+  event: 'tts_message_end'
+  message_id: string
+}
+
+export type IOnTTSMessage = (chunk: TTSAudioChunk) => void
+export type IOnTTSEnd = (end: TTSAudioEnd) => void
+
+
 interface IOtherOptions {
   isPublicAPI?: boolean
   bodyStringify?: boolean
@@ -129,6 +145,8 @@ interface IOtherOptions {
   getAbortController?: (abortController: AbortController) => void
   onWorkflowStarted?: IOnWorkflowStarted
   onWorkflowFinished?: IOnWorkflowFinished
+  onTTSMessage?: IOnTTSMessage
+  onTTSEnd?: IOnTTSEnd
   onNodeStarted?: IOnNodeStarted
   onNodeFinished?: IOnNodeFinished
 }
@@ -151,6 +169,8 @@ const handleStream = (
   onWorkflowFinished?: IOnWorkflowFinished,
   onNodeStarted?: IOnNodeStarted,
   onNodeFinished?: IOnNodeFinished,
+  onTTSMessage?: IOnTTSMessage,
+  onTTSEnd?: IOnTTSEnd,
 ) => {
   if (!response.ok) { throw new Error('Network response was not ok') }
 
@@ -193,6 +213,7 @@ const handleStream = (
               onCompleted?.(true)
               return
             }
+
             if (bufferObj.event === 'message' || bufferObj.event === 'agent_message') {
               // can not use format here. Because message is splited.
               onData(unicodeToChar(bufferObj.answer), isFirstMessage, {
@@ -225,6 +246,12 @@ const handleStream = (
             }
             else if (bufferObj.event === 'node_finished') {
               onNodeFinished?.(bufferObj as NodeFinishedResponse)
+            }
+            else if (bufferObj.event === 'tts_message') {
+              onTTSMessage?.(bufferObj as TTSAudioChunk)
+            }
+            else if (bufferObj.event === 'tts_message_end') {
+              onTTSEnd?.(bufferObj as TTSAudioEnd)
             }
           }
         })
@@ -367,6 +394,8 @@ export const ssePost = (
     onWorkflowFinished,
     onNodeStarted,
     onNodeFinished,
+    onTTSMessage,
+    onTTSEnd,
     onError,
   }: IOtherOptions,
 ) => {
@@ -392,15 +421,29 @@ export const ssePost = (
         onError?.('Server Error')
         return
       }
-      return handleStream(res, (str: string, isFirstMessage: boolean, moreInfo: IOnDataMoreInfo) => {
-        if (moreInfo.errorMessage) {
-          Toast.notify({ type: 'error', message: moreInfo.errorMessage })
-          return
-        }
-        onData?.(str, isFirstMessage, moreInfo)
-      }, () => {
-        onCompleted?.()
-      }, onThought, onMessageEnd, onMessageReplace, onFile, onWorkflowStarted, onWorkflowFinished, onNodeStarted, onNodeFinished)
+      return handleStream(
+        res,
+        (str: string, isFirstMessage: boolean, moreInfo: IOnDataMoreInfo) => {
+          if (moreInfo.errorMessage) {
+            Toast.notify({ type: 'error', message: moreInfo.errorMessage })
+            return
+          }
+          onData?.(str, isFirstMessage, moreInfo)
+        },
+        () => {
+          onCompleted?.()
+        },
+        onThought,
+        onMessageEnd,
+        onMessageReplace,
+        onFile,
+        onWorkflowStarted,
+        onWorkflowFinished,
+        onNodeStarted,
+        onNodeFinished,
+        onTTSMessage,
+        onTTSEnd,
+      )
     })
     .catch((e) => {
       Toast.notify({ type: 'error', message: e })
